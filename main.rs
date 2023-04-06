@@ -27,7 +27,6 @@ pub enum FileSystemError {
     DiskFull,
     FileTooBig,
     FilenameTooLong,
-    InvalidFileDescriptor(usize),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -37,6 +36,7 @@ pub struct FileInfo<const MAX_BLOCKS: usize, const BLOCK_SIZE: usize> {
     current_block: usize,
     offset: usize,
     writing: bool,
+    block_buffer: [u8; BLOCK_SIZE],
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -63,6 +63,7 @@ pub struct FileSystem<
     disk: ramdisk::RamDisk<BLOCK_SIZE, NUM_BLOCKS>,
     block_buffer: [u8; BLOCK_SIZE],
     file_content_buffer: [u8; MAX_FILE_BYTES],
+    open_inodes: [bool; MAX_FILES_STORED],
 }
 
 impl<
@@ -96,6 +97,7 @@ impl<
             disk,
             block_buffer: [0; BLOCK_SIZE],
             file_content_buffer: [0; MAX_FILE_BYTES],
+            open_inodes: [false; MAX_FILES_STORED],
         };
         assert!(result.num_inode_blocks() * 2 < NUM_BLOCKS);
         assert!(result.num_data_blocks() <= block_bits);
@@ -141,6 +143,38 @@ impl<
     }
 
     pub fn open_create(&mut self, filename: &str) -> FileSystemResult<usize> {
+        self.disk.read(0, &mut self.block_buffer);
+        if self.block_buffer[0] % 2 != 1 { // means root directory hasn't been initailized
+            self.block_buffer = [00000000; BLOCK_SIZE];
+            self.block_buffer[0] = 00000001;
+            let mut existblocks_buffer = [0 as u8; BLOCK_SIZE];
+            self.disk.read(1, &mut existblocks_buffer);
+            // existblocks_buffer = [00000000; BLOCK_SIZE];
+            // existblocks_buffer[0] = 00111111;
+            for i in 0..self.num_inode_blocks()+1 {
+                existblocks_buffer[0] |= 1 << i;
+            }
+            self.disk.write(1, &existblocks_buffer);
+            // I STILL NEED TO CREATE AN INODE??
+        }
+        else if false { // Check if an inode exists somehow
+            todo!("This is for if there already exists an inode")
+        }
+        else {
+            let mut first_open_index = 0;
+            let mut spot = 0;
+            for (i, byte) in self.block_buffer.iter().enumerate().take(BLOCK_SIZE) {
+                if *byte != 255 as u8 {
+                    first_open_index = i;
+                    spot = byte.count_ones();
+                }
+            }
+            self.block_buffer[first_open_index] |= 1 << spot;
+            self.disk.write(0, &self.block_buffer);
+            // Still need to do other stuff here
+        }
+        
+
         todo!("Your code here");
     }
 
@@ -159,4 +193,5 @@ impl<
     pub fn write(&mut self, fd: usize, buffer: &[u8]) -> FileSystemResult<()> {
         todo!("Your code here");
     }
+
 }
